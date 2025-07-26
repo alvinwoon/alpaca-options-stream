@@ -1,0 +1,27 @@
+# Build artifacts
+obj/
+alpaca_options_stream
+get_option_symbols
+*.o
+*.exe
+
+# API Configuration (contains secrets)
+config.json
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp

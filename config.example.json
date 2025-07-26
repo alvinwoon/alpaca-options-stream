@@ -1,0 +1,6 @@
+{
+  "_comment": "Copy this file to config.json and add your API keys",
+  "alpaca_api_key": "YOUR_ALPACA_API_KEY_HERE",
+  "alpaca_api_secret": "YOUR_ALPACA_API_SECRET_HERE",
+  "fred_api_key": "YOUR_FRED_API_KEY_HERE_OPTIONAL"
+}
