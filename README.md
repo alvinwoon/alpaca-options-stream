@@ -1,246 +1,116 @@
-# Alpaca Options Stream Parser
+<img width="1308" height="236" alt="image" src="https://github.com/user-attachments/assets/63cf7807-e1cc-486b-8e54-5914c46a523a" />
 
-High-performance C application for parsing live WebSocket streaming data from Alpaca's options trading API.
+# Teta Puro
 
-## Features
+A C app for handling real time options streaming with Greeks.
 
-- **Real-time Options Data**: Live trade and quote data streaming
-- **WebSocket Integration**: Automatic authentication and subscription management
-- **MsgPack Protocol**: Efficient binary message parsing with minimal overhead
-- **Auto Symbol Discovery**: REST API integration for option contract discovery
-- **Human-Readable Display**: Converts cryptic option symbols to readable format
-- **Strike Price Filtering**: Advanced filtering by expiration dates and strike prices
-- **Mock Data Mode**: Simulated live data for development when markets are closed
-- **Clean Architecture**: Modular codebase with separated concerns
+## What it does
 
-## Architecture
+- Streams live options data from Alpaca's WebSocket feed
+- Calculates Greeks real time
+- Shows second-order Greeks for vol dislocation hunting
+- Mock mode because markets are closed most of the time
 
-```
-├── include/               # Header files
-│   ├── types.h           # Type definitions and structures
-│   ├── websocket.h       # WebSocket connection management
-│   ├── api_client.h      # REST API client for symbol fetching
-│   ├── symbol_parser.h   # Option symbol parsing utilities
-│   ├── display.h         # UI and display functions
-│   ├── message_parser.h  # MsgPack message parsing
-│   └── mock_data.h       # Mock data generation for development
-├── src/                  # Source files
-│   ├── main.c           # Application entry point
-│   ├── websocket.c      # WebSocket implementation
-│   ├── api_client.c     # REST API client implementation
-│   ├── symbol_parser.c  # Symbol parsing logic
-│   ├── display.c        # Display and UI functions
-│   ├── message_parser.c # Message parsing implementation
-│   └── mock_data.c      # Mock data generation implementation
-├── obj/                 # Object files (created during build)
-├── get_option_symbols.c # Standalone symbol lookup tool
-└── Makefile            # Build configuration
-```
+## Greeks it calculates
 
-## Prerequisites
+- Delta, Gamma, Theta, Vega, Vanna, Charm, Volga, Speed, Zomma, Color
 
-- **libwebsockets** - WebSocket client library
-- **msgpack-c** - MsgPack binary serialization
-- **OpenSSL** - SSL/TLS support
-- **curl** - HTTP client for REST API
-- **cjson** - JSON parsing
+## IV calculation
 
-## Installation
+**Newton-Raphson approach:**
+- **Corrado-Miller initial guess** - uses option moneyness for smart starting point
+- **Vega-based iteration** - faster convergence (usually <10 iterations)
+- **Bounded fallback** - drops to bisection if Newton-Raphson fails
+- **Moneyness awareness** - handles ATM vs OTM options differently
 
-1. **Install dependencies:**
+It's still Black-Scholes underneath, just with a smarter solver. The assumptions are still wrong (constant vol, no skew, etc.) but at least we get answers faster.
+
+- 5-10x faster IV calculation in most cases
+- Better convergence on weird strikes
+- More reliable Greeks for vol analysis
+- Still shows "N/A" for hopeless cases (deep OTM with tiny prices)
+
+## Quick start
+
+1. Install deps:
 ```bash
 make install-deps
 ```
 
-2. **Build the application:**
+2. Copy config and add your keys:
+```bash
+cp config.example.json config.json
+# edit config.json with your Alpaca API keys
+```
+
+3. Build it:
 ```bash
 make
 ```
 
-3. **Clean build (if needed):**
+4. Try mock mode first:
 ```bash
-make clean && make
+./alpaca_options_stream --mock AAPL251220C00150000 AAPL251220P00150000
 ```
 
-## Usage
-
-### Real-time Streaming
-
-The main application supports three modes:
-
-#### 1. Direct Symbol Mode
-Stream specific option symbols directly:
+5. Live streaming (if your account has options data):
 ```bash
-./alpaca_options_stream YOUR_KEY YOUR_SECRET AAPL241220C00150000 AAPL241220P00150000
+./alpaca_options_stream QQQ 2025-07-26 2025-07-28 564 566
 ```
 
-#### 2. Auto-fetch by Date
-Automatically fetch and stream options by expiration date:
-```bash
-./alpaca_options_stream YOUR_KEY YOUR_SECRET AAPL 2025-08-01 2025-08-02
-```
+## Mock mode
 
-#### 3. Auto-fetch by Date + Strike Price
-Filter options by both expiration date and strike price range:
-```bash
-./alpaca_options_stream YOUR_KEY YOUR_SECRET QQQ 2025-08-01 2025-08-02 560.00 562.00
-```
-
-#### 4. Mock Mode (Development)
-Generate simulated live data for development when markets are closed:
-```bash
-./alpaca_options_stream --mock AAPL241220C00150000 AAPL241220P00150000 QQQ250801C00560000
-```
-
-### Symbol Discovery
-
-Use the standalone tool to discover available option symbols:
-```bash
-# Find options by date only
-./get_option_symbols YOUR_KEY YOUR_SECRET AAPL 2024-12-20 2024-12-20
-
-# Find options with strike price filter
-./get_option_symbols YOUR_KEY YOUR_SECRET AAPL 2024-12-20 2024-12-20 150.00 160.00
-```
-
-## Option Symbol Format
-
-### Input Format
-Raw option symbols follow the format: `SYMBOL[YY][MM][DD][C/P][00000000]`
-
-Examples:
-- `AAPL241220C00150000` = AAPL Call expiring Dec 20, 2024 with $150.00 strike
-- `QQQ250801P00560000` = QQQ Put expiring Aug 1, 2025 with $560.00 strike
-
-### Display Format
-The application converts these to human-readable format:
-- `AAPL241220C00150000` → `AAPL 12/20/24 $150.00 Call`
-- `QQQ250801P00560000` → `QQQ 08/01/25 $560.00 Put`
-
-## Live Data Display
-
-The application shows a real-time updating table:
-
-```
-=== Alpaca Options Live Data ===
-Symbols: 6 | Press Ctrl+C to exit
-
-OPTION CONTRACT                     LAST TRADE   BID             ASK             SPREAD      LAST UPDATE    
------------------------------------ ------------ --------------- --------------- ------------ ---------------
-QQQ 08/01/25 $560.00 Call          $2.45 x10    $2.40 x5        $2.50 x3        $0.10       09:28:35.123   
-QQQ 08/01/25 $561.00 Call          N/A          $1.35 x8        $1.45 x2        $0.10       09:28:34.891   
-QQQ 08/01/25 $562.00 Call          $0.95 x5     $0.90 x10       $1.00 x7        $0.10       09:28:35.445   
-QQQ 08/01/25 $560.00 Put           N/A          $0.85 x3        $0.95 x4        $0.10       09:28:33.234   
-QQQ 08/01/25 $561.00 Put           $1.20 x15    $1.15 x6        $1.25 x9        $0.10       09:28:35.667   
-QQQ 08/01/25 $562.00 Put           N/A          $1.45 x2        $1.55 x5        $0.10       09:28:34.789   
-
-Live streaming... (data updates in real-time)
-```
-
-## Mock Mode for Development
-
-When markets are closed or you need to test the application without real API keys, use mock mode:
+Since most people don't have live options data subscriptions:
 
 ```bash
-./alpaca_options_stream --mock AAPL241220C00150000 AAPL241220P00150000 QQQ250801C00560000
+./alpaca_options_stream --mock QQQ250728C00564000 QQQ250728P00565000
 ```
 
-**Mock Mode Features:**
-- **No API Keys Required**: Works without Alpaca credentials
-- **Realistic Data**: Generates price movements with configurable volatility
-- **Live Updates**: Simulates real-time trade and quote data
-- **Multiple Symbols**: Supports multiple option contracts simultaneously
-- **Price Continuity**: Maintains realistic price progression over time
+Generates realistic price movements and all the Greeks. Good for:
+- Testing strategies when markets are closed
+- Learning without burning through API quotas
+- Developing without real money anxiety
 
-**Mock Data Characteristics:**
-- Trade prices: Move with realistic volatility (default 2%)
-- Quote spreads: Maintain 1-5% bid-ask spreads
-- Sizes: Random trade/quote sizes (1-150 contracts)
-- Timestamps: Real-time RFC-3339 formatted timestamps
-- Exchanges: Rotates through realistic exchange codes (N, C, A, P, B)
-- Conditions: Uses appropriate trade/quote condition codes
+## Filters and noise reduction
 
-This mode is perfect for:
-- Development and testing
-- Demonstrations and presentations
-- Learning the application interface
-- Testing new features without market dependency
+- Only processes trades ≥10 contracts (retail noise filter)
+- Subscribes to trades only, not quotes (less bandwidth)
+- Change detection prevents unnecessary screen updates
 
-## Data Fields
+## Known subscription gotchas
 
-**Trade Data:**
-- Price and size of last executed trade
-- Exchange and timestamp information
-- Trade conditions
+- Free Alpaca accounts might not have options streaming
+- "Indicative" data vs "OPRA" data - different subscription levels
+- WebSocket might hang if your account doesn't have access
+- REST API for symbol lookup usually works regardless
 
-**Quote Data:**
-- Best bid/ask prices and sizes
-- Bid/ask exchanges
-- Quote timestamps and conditions
-- Calculated bid-ask spread
+## Disclaimer
 
-## Performance Notes
+This calculates financial derivatives. I'm not responsible if:
+- The Greeks are wrong
+- You lose money using this
+- Your risk management relies on this code
+- The volatility smile breaks your models
 
-- **Low Latency**: Designed for minimal processing overhead
-- **Memory Efficient**: Optimized memory usage during streaming
-- **Single-threaded**: Predictable event loop performance
-- **Binary Protocol**: MsgPack provides faster parsing than JSON
+Use real trading systems for real money.
 
-## Error Handling
+## Dependencies
 
-The application handles:
-- WebSocket connection failures and reconnection
-- Authentication errors with detailed messages
-- Malformed MsgPack messages
-- API rate limiting and error responses
-- Network interruptions
+You'll need these libraries (installation varies by OS):
+- libwebsockets (WebSocket client)
+- msgpack-c (binary serialization)
+- openssl (TLS/SSL)
+- curl (HTTP requests)
+- cjson (JSON parsing)
 
-## Development
-
-### Building from Source
+On macOS with Homebrew:
 ```bash
-# Development build with debug info
-make CFLAGS="-Wall -Wextra -std=c99 -g -Iinclude"
-
-# Show build help
-make help
+brew install libwebsockets msgpack openssl curl
 ```
 
-### Project Structure
-- **Modular Design**: Each component has a specific responsibility
-- **Header Files**: Clean API definitions in `include/`
-- **Source Files**: Implementation details in `src/`
-- **Object Files**: Compiled objects in `obj/` (auto-created)
+On Ubuntu/Debian:
+```bash
+sudo apt-get install libwebsockets-dev libmsgpack-dev libssl-dev libcurl4-openssl-dev libcjson-dev
+```
 
-### Adding New Features
-1. Define types in `include/types.h`
-2. Add function declarations to appropriate header
-3. Implement in corresponding source file
-4. Update Makefile dependencies if needed
-
-## License
-
-Open source - suitable for educational and commercial use.
-
-## API Documentation
-
-For Alpaca API details, see:
-- [Alpaca Options WebSocket Documentation](https://docs.alpaca.markets/docs/real-time-option-data)
-- [Alpaca Options REST API](https://docs.alpaca.markets/reference/optionscontracts)
-
-## Troubleshooting
-
-**Connection Issues:**
-- Verify API credentials are correct
-- Check network connectivity
-- Ensure WebSocket endpoint is accessible
-
-**Build Issues:**
-- Run `make install-deps` to install dependencies
-- Verify compiler and library versions
-- Check that all header files are found
-
-**Data Issues:**
-- Confirm option symbols exist and are valid
-- Check expiration dates are in correct format (YYYY-MM-DD)
-- Verify market hours for live data availability
+Your mileage may vary.
