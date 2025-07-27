@@ -42,6 +42,13 @@ typedef struct {
     double prev_gamma;
     double prev_theta;
     double prev_vega;
+    // Previous values for 2nd and 3rd order Greeks
+    double prev_vanna;
+    double prev_charm;
+    double prev_volga;
+    double prev_speed;
+    double prev_zomma;
+    double prev_color;
 } option_data_t;
 
 typedef struct {

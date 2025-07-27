@@ -49,6 +49,13 @@ void update_previous_values(option_data_t *data) {
         data->prev_gamma = data->bs_analytics.gamma;
         data->prev_theta = data->bs_analytics.theta;
         data->prev_vega = data->bs_analytics.vega;
+        // Store 2nd and 3rd order Greeks
+        data->prev_vanna = data->bs_analytics.vanna;
+        data->prev_charm = data->bs_analytics.charm;
+        data->prev_volga = data->bs_analytics.volga;
+        data->prev_speed = data->bs_analytics.speed;
+        data->prev_zomma = data->bs_analytics.zomma;
+        data->prev_color = data->bs_analytics.color;
     }
 }
 
@@ -276,15 +283,55 @@ void display_option_data(alpaca_client_t *client) {
                 snprintf(vega_str, sizeof(vega_str), "%-7.3f", current_vega);
             }
             
-            // 2nd Order Greeks (no color for now - can add later)
-            snprintf(vanna_str, sizeof(vanna_str), "%-7.3f", data->bs_analytics.vanna / 100.0);
-            snprintf(charm_str, sizeof(charm_str), "%-7.1f", data->bs_analytics.charm * 365.0); 
-            snprintf(volga_str, sizeof(volga_str), "%-7.3f", data->bs_analytics.volga / 100.0);
+            // 2nd Order Greeks with color
+            double current_vanna = data->bs_analytics.vanna / 100.0;
+            double prev_vanna = data->prev_vanna / 100.0;
+            if (data->prev_vanna != 0) {
+                format_value_with_color(vanna_str, sizeof(vanna_str), current_vanna, prev_vanna, "%.3f", 0.001, 7);
+            } else {
+                snprintf(vanna_str, sizeof(vanna_str), "%-7.3f", current_vanna);
+            }
             
-            // 3rd Order Greeks
-            snprintf(speed_str, sizeof(speed_str), "%-7.4f", data->bs_analytics.speed * 1000.0);  // Speed per $1000 move
-            snprintf(zomma_str, sizeof(zomma_str), "%-7.3f", data->bs_analytics.zomma / 100.0);   // Zomma per 100
-            snprintf(color_str, sizeof(color_str), "%-7.1f", data->bs_analytics.color * 365.0);   // Color per day
+            double current_charm = data->bs_analytics.charm * 365.0;
+            double prev_charm = data->prev_charm * 365.0;
+            if (data->prev_charm != 0) {
+                format_value_with_color(charm_str, sizeof(charm_str), current_charm, prev_charm, "%.1f", 0.1, 7);
+            } else {
+                snprintf(charm_str, sizeof(charm_str), "%-7.1f", current_charm);
+            }
+            
+            double current_volga = data->bs_analytics.volga / 100.0;
+            double prev_volga = data->prev_volga / 100.0;
+            if (data->prev_volga != 0) {
+                format_value_with_color(volga_str, sizeof(volga_str), current_volga, prev_volga, "%.3f", 0.001, 7);
+            } else {
+                snprintf(volga_str, sizeof(volga_str), "%-7.3f", current_volga);
+            }
+            
+            // 3rd Order Greeks with color
+            double current_speed = data->bs_analytics.speed * 1000.0;
+            double prev_speed = data->prev_speed * 1000.0;
+            if (data->prev_speed != 0) {
+                format_value_with_color(speed_str, sizeof(speed_str), current_speed, prev_speed, "%.4f", 0.0001, 7);
+            } else {
+                snprintf(speed_str, sizeof(speed_str), "%-7.4f", current_speed);
+            }
+            
+            double current_zomma = data->bs_analytics.zomma / 100.0;
+            double prev_zomma = data->prev_zomma / 100.0;
+            if (data->prev_zomma != 0) {
+                format_value_with_color(zomma_str, sizeof(zomma_str), current_zomma, prev_zomma, "%.3f", 0.001, 7);
+            } else {
+                snprintf(zomma_str, sizeof(zomma_str), "%-7.3f", current_zomma);
+            }
+            
+            double current_color = data->bs_analytics.color * 365.0;
+            double prev_color = data->prev_color * 365.0;
+            if (data->prev_color != 0) {
+                format_value_with_color(color_str, sizeof(color_str), current_color, prev_color, "%.1f", 0.1, 7);
+            } else {
+                snprintf(color_str, sizeof(color_str), "%-7.1f", current_color);
+            }
         }
         
         // Print the row with explicit color reset after each field
