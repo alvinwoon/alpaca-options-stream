@@ -90,11 +90,7 @@ Use real trading systems for real money.
 ## Dependencies
 
 You'll need these libraries (installation varies by OS):
-- libwebsockets (WebSocket client)
-- msgpack-c (binary serialization)
-- openssl (TLS/SSL)
-- curl (HTTP requests)
-- cjson (JSON parsing)
+- libwebsockets, msgpack-c, c-json
 
 On macOS with Homebrew:
 ```bash
@@ -105,5 +101,3 @@ On Ubuntu/Debian:
 ```bash
 sudo apt-get install libwebsockets-dev libmsgpack-dev libssl-dev libcurl4-openssl-dev libcjson-dev
 ```
-
-Your mileage may vary.
