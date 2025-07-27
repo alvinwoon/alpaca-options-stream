@@ -77,13 +77,6 @@ Generates realistic price movements and all the Greeks. Good for:
 - Subscribes to trades only, not quotes (less bandwidth)
 - Change detection prevents unnecessary screen updates
 
-## Known subscription gotchas
-
-- Free Alpaca accounts might not have options streaming
-- "Indicative" data vs "OPRA" data - different subscription levels
-- WebSocket might hang if your account doesn't have access
-- REST API for symbol lookup usually works regardless
-
 ## Disclaimer
 
 This calculates financial derivatives. I'm not responsible if:
