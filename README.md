@@ -2,12 +2,12 @@
 
 # Teta Puro
 
-A C app for handling real time options streaming with Greeks.
+A C app for handling real time options streaming with Greeks. [a weekend hackathon to play around with alpaca websocket, do not use for real trading]
 
 ## What it does
 
 - Streams live options data from Alpaca's WebSocket feed
-- Calculates Greeks real time
+- Calculates IV, RV and Greeks real time
 - Shows second-order Greeks for vol dislocation hunting
 - Mock mode because markets are closed most of the time
 
