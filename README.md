@@ -1,4 +1,4 @@
-<img width="1308" height="236" alt="image" src="https://github.com/user-attachments/assets/63cf7807-e1cc-486b-8e54-5914c46a523a" />
+<img width="1290" height="700" alt="image" src="https://github.com/user-attachments/assets/622f2f76-e4a4-40e4-8c11-671d3e0094b8" />
 
 # Teta Puro
 
