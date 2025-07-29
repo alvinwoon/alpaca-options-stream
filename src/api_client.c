@@ -1,5 +1,6 @@
 #include "../include/api_client.h"
 #include "../include/display.h"
+#include "../include/realized_vol.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -118,6 +119,135 @@ int fetch_option_symbols(alpaca_client_t *client, const char *underlying_symbol,
             }
         } else {
             printf("API request failed with status code: %ld\n", response_code);
+            if (response.data) {
+                printf("Response: %s\n", response.data);
+            }
+        }
+    }
+    
+    // Cleanup
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    if (response.data) {
+        free(response.data);
+    }
+    
+    return success;
+}
+
+// Fetch historical OHLC data for RV calculation
+int fetch_historical_bars(alpaca_client_t *client, const char *symbol, const char *start_date, int limit_days) {
+    CURL *curl;
+    CURLcode res;
+    api_response_t response = {0};
+    int success = 0;
+    
+    if (!client || !symbol || !start_date) {
+        printf("Invalid parameters for historical data fetch\n");
+        return 0;
+    }
+    
+    curl = curl_easy_init();
+    if (!curl) {
+        printf("Failed to initialize CURL for historical data\n");
+        return 0;
+    }
+    
+    // Build URL for historical bars API (use data.alpaca.markets with IEX feed for free tier)
+    char url[512];
+    snprintf(url, sizeof(url), 
+             "https://data.alpaca.markets/v2/stocks/%s/bars?timeframe=1Day&start=%s&limit=%d&feed=iex",
+             symbol, start_date, limit_days);
+    
+    printf("Fetching historical data: %s (last %d days)\n", symbol, limit_days);
+    printf("Full API URL: %s\n", url);
+    
+    // Set CURL options
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, api_response_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "alpaca-options-stream/1.0");
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+    
+    // Set headers with API key
+    struct curl_slist *headers = NULL;
+    char auth_header[256];
+    snprintf(auth_header, sizeof(auth_header), "APCA-API-KEY-ID: %s", client->api_key);
+    headers = curl_slist_append(headers, auth_header);
+    
+    char secret_header[256];
+    snprintf(secret_header, sizeof(secret_header), "APCA-API-SECRET-KEY: %s", client->api_secret);
+    headers = curl_slist_append(headers, secret_header);
+    
+    printf("Auth Headers:\n");
+    printf("   APCA-API-KEY-ID: %.*s...\n", 8, client->api_key);
+    printf("   APCA-API-SECRET-KEY: %.*s...\n", 8, client->api_secret);
+    
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    
+    // Perform the request
+    res = curl_easy_perform(curl);
+    
+    if (res != CURLE_OK) {
+        printf("CURL request failed: %s\n", curl_easy_strerror(res));
+    } else {
+        long response_code;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+        
+        if (response_code == 200 && response.data) {
+            // Parse JSON response
+            cJSON *json = cJSON_Parse(response.data);
+            if (json) {
+                cJSON *bars = cJSON_GetObjectItem(json, "bars");
+                if (cJSON_IsArray(bars)) {
+                    int bar_count = cJSON_GetArraySize(bars);
+                    printf("   Retrieved %d historical bars for %s\n", bar_count, symbol);
+                    
+                    // Initialize RV manager if not already done
+                    if (!client->rv_manager) {
+                        client->rv_manager = init_rv_manager();
+                    }
+                    
+                    if (client->rv_manager) {
+                        realized_vol_t *rv = get_underlying_rv(client->rv_manager, symbol);
+                        if (rv) {
+                            // Process each bar and add to RV data
+                            for (int i = 0; i < bar_count; i++) {
+                                cJSON *bar = cJSON_GetArrayItem(bars, i);
+                                if (bar) {
+                                    cJSON *open = cJSON_GetObjectItem(bar, "o");
+                                    cJSON *high = cJSON_GetObjectItem(bar, "h");
+                                    cJSON *low = cJSON_GetObjectItem(bar, "l");
+                                    cJSON *close = cJSON_GetObjectItem(bar, "c");
+                                    
+                                    if (cJSON_IsNumber(open) && cJSON_IsNumber(high) && 
+                                        cJSON_IsNumber(low) && cJSON_IsNumber(close)) {
+                                        
+                                        update_price_data(rv, 
+                                                        cJSON_GetNumberValue(open),
+                                                        cJSON_GetNumberValue(high),
+                                                        cJSON_GetNumberValue(low),
+                                                        cJSON_GetNumberValue(close));
+                                    }
+                                }
+                            }
+                            
+                            // Display RV summary
+                            if (rv->rv_20d > 0) {
+                                printf("   RV Analysis: 10d=%.1f%% 20d=%.1f%% 30d=%.1f%% (trend: %+.1f%%)\n",
+                                       rv->rv_10d * 100, rv->rv_20d * 100, rv->rv_30d * 100, rv->rv_trend * 100);
+                            }
+                            
+                            success = 1;
+                        }
+                    }
+                }
+                cJSON_Delete(json);
+            } else {
+                printf("Failed to parse historical data JSON response\n");
+            }
+        } else {
+            printf("Historical data request failed with status code: %ld\n", response_code);
             if (response.data) {
                 printf("Response: %s\n", response.data);
             }

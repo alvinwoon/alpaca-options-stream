@@ -2,6 +2,7 @@
 #include "../include/symbol_parser.h"
 #include "../include/black_scholes.h"
 #include "../include/volatility_smile.h"
+#include "../include/realized_vol.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -348,6 +349,67 @@ void display_option_data(alpaca_client_t *client) {
     printf("2nd Order: Vanna(/100), Charm(×365), Volga(/100) | 3rd Order: Speed(/$1000), Zomma(/100), Color(×365)\n");
     printf("Colors: " COLOR_GREEN " GREEN " COLOR_RESET " = Up, " COLOR_RED " RED " COLOR_RESET " = Down\n");
     
+    // Display realized volatility summary if available
+    if (client->rv_manager) {
+        printf("\nREALIZED VOLATILITY ANALYSIS:\n");
+        
+        // Show RV for each underlying
+        for (int i = 0; i < client->rv_manager->rv_count; i++) {
+            realized_vol_t *rv = &client->rv_manager->underlying_rvs[i];
+            if (rv->rv_20d > 0) {
+                printf("   %s RV Trend: 10d=%.1f%% | 20d=%.1f%% | 30d=%.1f%% | Change: %+.1f%%", 
+                       rv->symbol, rv->rv_10d * 100, rv->rv_20d * 100, rv->rv_30d * 100, rv->rv_trend * 100);
+                
+                if (rv->rv_mean > 0) {
+                    printf(" | Percentile: %.0f%%", (rv->rv_20d / rv->rv_mean) * 50 + 50);
+                }
+                printf("\n");
+                
+                // Show IV vs RV analysis for each option
+                printf("   %s IV vs RV Analysis:\n", rv->symbol);
+                for (int j = 0; j < client->data_count; j++) {
+                    option_data_t *data = &client->option_data[j];
+                    if (!data->analytics_valid || !data->bs_analytics.iv_converged) continue;
+                    
+                    // Check if this option belongs to this underlying
+                    char underlying[16];
+                    int k;
+                    for (k = 0; k < (int)sizeof(underlying) - 1 && data->symbol[k] && 
+                         ((data->symbol[k] >= 'A' && data->symbol[k] <= 'Z') || 
+                          (data->symbol[k] >= 'a' && data->symbol[k] <= 'z')); k++) {
+                        underlying[k] = data->symbol[k];
+                    }
+                    underlying[k] = '\0';
+                    
+                    if (strcmp(underlying, rv->symbol) == 0) {
+                        // Parse option symbol for display
+                        char readable_symbol[32];
+                        parse_option_symbol(data->symbol, readable_symbol, sizeof(readable_symbol));
+                        if (strlen(readable_symbol) > 20) {
+                            readable_symbol[20] = '\0';
+                        }
+                        
+                        iv_rv_analysis_t iv_rv = analyze_iv_vs_rv(data->bs_analytics.implied_vol, rv, data->time_to_expiry);
+                        double iv_percent = data->bs_analytics.implied_vol * 100;
+                        double rv_percent = rv->rv_20d * 100;
+                        double spread_percent = iv_rv.iv_rv_spread * 100;
+                        
+                        const char *signal_color = COLOR_RESET;
+                        if (strcmp(iv_rv.signal, "EXPENSIVE") == 0) {
+                            signal_color = COLOR_RED;
+                        } else if (strcmp(iv_rv.signal, "CHEAP") == 0) {
+                            signal_color = COLOR_GREEN;
+                        }
+                        
+                        printf("     %-20s: IV=%.1f%% vs RV₂₀=%.1f%% → %s%+.1f%% (%s)%s\n",
+                               readable_symbol, iv_percent, rv_percent, signal_color, spread_percent, iv_rv.signal, COLOR_RESET);
+                    }
+                }
+                printf("\n");
+            }
+        }
+    }
+    
     // Display volatility smile summary if available
     if (client->smile_analysis) {
         smile_analysis_t *analysis = (smile_analysis_t*)client->smile_analysis;
@@ -367,12 +429,15 @@ void display_option_data(alpaca_client_t *client) {
             printf("Vol Smiles: %d analyzed | Put Skews: %d | Call Skews: %d | ", 
                    total_smiles, put_skews, call_skews);
             if (anomalies > 0) {
-                printf(COLOR_RED "🚨 %d ANOMALIES DETECTED 🚨" COLOR_RESET "\n", anomalies);
+                printf(COLOR_RED "%d ANOMALIES DETECTED" COLOR_RESET "\n", anomalies);
             } else {
                 printf("Anomalies: %d\n", anomalies);
             }
         }
     }
+    
+    // Display volatility dislocation alerts
+    display_dislocation_alerts(client);
     
     printf("Live streaming... (data updates in real-time)\n");
     
@@ -428,4 +493,263 @@ void stop_display_thread(alpaca_client_t *client) {
     pthread_mutex_destroy(&client->data_mutex);
     
     printf("Display thread stopped\n");
+}
+
+// Generate specific trade recommendations based on detected anomalies
+void generate_trade_recommendation(option_data_t *data, dislocation_alert_t *alert) {
+    bs_result_t *bs = &data->bs_analytics;
+    char trade_msg[512] = "";
+    
+    double moneyness = data->underlying_price / data->strike;
+    double days_to_expiry = data->time_to_expiry * 365.0;
+    const char *option_type = data->is_call ? "CALL" : "PUT";
+    const char *position_type = "";
+    
+    // Determine if option is ITM, ATM, or OTM
+    int is_itm = data->is_call ? (moneyness > 1.02) : (moneyness < 0.98);
+    int is_atm = (moneyness >= 0.98 && moneyness <= 1.02);
+    
+    // High Vanna Recommendations
+    if (alert->vanna_anomaly && fabs(bs->vanna) > 2.0) {
+        if (bs->vanna > 0 && !data->is_call) {
+            strcat(trade_msg, "\n      • SELL PUT SPREADS - Vol premium expensive");
+        } else if (bs->vanna < 0 && data->is_call && is_itm) {
+            strcat(trade_msg, "\n      • BUY CALL CALENDARS - Vol dislocated");
+        } else if (fabs(bs->vanna) > 5.0) {
+            strcat(trade_msg, "\n      • STRADDLE TRADE - Vol/spot correlation break");
+        }
+    }
+    
+    // High Volga Recommendations  
+    if (alert->volga_anomaly && bs->volga > 40.0) {
+        if (days_to_expiry < 30) {
+            strcat(trade_msg, "\n      • SELL IRON CONDORS - Expensive convexity near expiry");
+        } else if (is_atm) {
+            strcat(trade_msg, "\n      • SELL ATM STRADDLES - Rich vol premium");
+        } else {
+            strcat(trade_msg, "\n      • SHORT VOL POSITION - Overpriced vol insurance");
+        }
+    } else if (alert->volga_anomaly && bs->volga < 2.0 && days_to_expiry > 7) {
+        strcat(trade_msg, "\n      • BUY BUTTERFLIES - Cheap convexity opportunity");
+    }
+    
+    // Wrong Charm Recommendations
+    if (alert->charm_anomaly && bs->charm > 0) {
+        strcat(trade_msg, "\n      • AVOID DELTA HEDGING - Expensive gamma exposure");
+        if (days_to_expiry < 7) {
+            strcat(trade_msg, "\n      • WEEKLY EXPIRY PLAY - Unusual theta decay");
+        }
+    }
+    
+    // Vanna/Volga Ratio Specific Trades
+    if (alert->vanna_volga_ratio > 0.5) {
+        strcat(trade_msg, "\n      • VOL SURFACE ARBITRAGE - Smile dislocation");
+        if (data->is_call && is_itm) {
+            strcat(trade_msg, "\n      • SELL ITM CALLS vs BUY OTM CALLS");
+        } else if (!data->is_call && is_itm) {
+            strcat(trade_msg, "\n      • SELL ITM PUTS vs BUY OTM PUTS");
+        }
+    } else if (alert->vanna_volga_ratio < 0.05) {
+        strcat(trade_msg, "\n      • RATIO SPREAD - Directional vol play");
+    }
+    
+    // Calendar Spread Opportunities
+    if (alert->vanna_anomaly && alert->volga_anomaly) {
+        if (days_to_expiry < 30) {
+            strcat(trade_msg, "\n      • SELL FRONT MONTH - Calendar opportunity");
+        } else {
+            strcat(trade_msg, "\n      • BUY CALENDARS - Sell front vol, buy back vol");
+        }
+    }
+    
+    // Risk Management Warnings
+    if (fabs(bs->vanna) > 10.0 || bs->volga > 100.0) {
+        strcat(trade_msg, "\n      • HIGH RISK - Size positions carefully");
+    }
+    
+    // IV vs RV specific recommendations
+    if (alert->iv_rv_anomaly && alert->iv_rv_spread > 0.15) {
+        strcat(trade_msg, "\n      • SELL VOL - IV extremely expensive vs RV");
+    } else if (alert->iv_rv_anomaly && alert->iv_rv_spread < -0.15) {
+        strcat(trade_msg, "\n      • BUY VOL - IV extremely cheap vs RV");
+    }
+    
+    // Default recommendation if no specific trade identified
+    if (strlen(trade_msg) == 0) {
+        if (alert->vanna_anomaly) {
+            strcat(trade_msg, "\n      • MONITOR - Watch for entry opportunity");
+        }
+        if (alert->volga_anomaly) {
+            strcat(trade_msg, "\n      • VOL PLAY - Volatility mispricing detected");
+        }
+        if (alert->iv_rv_anomaly) {
+            strcat(trade_msg, "\n      • IV-RV DISLOCATION - Volatility premium anomaly");
+        }
+    }
+    
+    strncpy(alert->trade_recommendation, trade_msg, sizeof(alert->trade_recommendation) - 1);
+    alert->trade_recommendation[sizeof(alert->trade_recommendation) - 1] = '\0';
+}
+
+// Analyze volatility dislocation for a single option
+dislocation_alert_t analyze_volatility_dislocation(option_data_t *data, alpaca_client_t *client) {
+    dislocation_alert_t alert = {0};
+    
+    if (!data->analytics_valid || !data->bs_analytics.iv_converged) {
+        return alert;
+    }
+    
+    bs_result_t *bs = &data->bs_analytics;
+    char temp_msg[128];
+    
+    // Vanna Analysis: Check for sign inversions and magnitude anomalies
+    double expected_vanna_sign = data->is_call ? 
+        (data->underlying_price > data->strike ? 1.0 : -1.0) :  // Call: +ITM, -OTM
+        (data->underlying_price < data->strike ? 1.0 : -1.0);   // Put: +ITM, -OTM
+    
+    double vanna_magnitude = fabs(bs->vanna);
+    int wrong_vanna_sign = (bs->vanna * expected_vanna_sign < 0);
+    int excessive_vanna = (vanna_magnitude > 2.0); // Threshold for excessive Vanna
+    
+    if (wrong_vanna_sign || excessive_vanna) {
+        alert.vanna_anomaly = 1;
+        if (wrong_vanna_sign) {
+            snprintf(temp_msg, sizeof(temp_msg), "VANNA SIGN INVERSION ");
+            strcat(alert.alert_message, temp_msg);
+        }
+        if (excessive_vanna) {
+            snprintf(temp_msg, sizeof(temp_msg), "HIGH VANNA %.3f ", vanna_magnitude);
+            strcat(alert.alert_message, temp_msg);
+        }
+    }
+    
+    // Volga Analysis: Check for excessive convexity or near-zero levels
+    double volga_magnitude = fabs(bs->volga);
+    double normal_volga_range = 20.0; // Baseline for "normal" Volga
+    
+    int high_volga = (volga_magnitude > 2.0 * normal_volga_range);
+    int low_volga = (volga_magnitude < 0.1 * normal_volga_range && data->time_to_expiry > 0.02); // Ignore if <1 week
+    
+    if (high_volga || low_volga) {
+        alert.volga_anomaly = 1;
+        if (high_volga) {
+            snprintf(temp_msg, sizeof(temp_msg), "HIGH VOLGA %.1f ", volga_magnitude);
+            strcat(alert.alert_message, temp_msg);
+        }
+        if (low_volga) {
+            snprintf(temp_msg, sizeof(temp_msg), "LOW VOLGA %.1f ", volga_magnitude);
+            strcat(alert.alert_message, temp_msg);
+        }
+    }
+    
+    // Charm Analysis: Check for wrong signs or excessive magnitude
+    double expected_charm_sign = data->is_call ? -1.0 : -1.0; // Both calls and puts should have negative Charm
+    double charm_magnitude = fabs(bs->charm);
+    
+    int wrong_charm_sign = (bs->charm > 0 && data->time_to_expiry > 0.02); // Positive Charm is unusual
+    int excessive_charm = (charm_magnitude > 200.0); // Threshold for excessive Charm
+    
+    if (wrong_charm_sign || excessive_charm) {
+        alert.charm_anomaly = 1;
+        if (wrong_charm_sign) {
+            snprintf(temp_msg, sizeof(temp_msg), "POSITIVE CHARM %.1f ", bs->charm * 365.0);
+            strcat(alert.alert_message, temp_msg);
+        }
+        if (excessive_charm) {
+            snprintf(temp_msg, sizeof(temp_msg), "HIGH CHARM %.1f ", charm_magnitude * 365.0);
+            strcat(alert.alert_message, temp_msg);
+        }
+    }
+    
+    // Calculate Vanna/Volga ratio
+    if (volga_magnitude > 0.001) {
+        alert.vanna_volga_ratio = fabs(bs->vanna / bs->volga);
+        
+        // Check if ratio is outside normal range (0.1-0.3)
+        if (alert.vanna_volga_ratio < 0.05 || alert.vanna_volga_ratio > 0.5) {
+            snprintf(temp_msg, sizeof(temp_msg), "VANNA/VOLGA %.3f ", alert.vanna_volga_ratio);
+            strcat(alert.alert_message, temp_msg);
+        }
+    }
+    
+    // Analyze IV vs RV if RV data is available
+    if (client && client->rv_manager) {
+        // Extract underlying symbol from option symbol
+        char underlying[16];
+        int j;
+        for (j = 0; j < (int)sizeof(underlying) - 1 && data->symbol[j] && 
+             ((data->symbol[j] >= 'A' && data->symbol[j] <= 'Z') || 
+              (data->symbol[j] >= 'a' && data->symbol[j] <= 'z')); j++) {
+            underlying[j] = data->symbol[j];
+        }
+        underlying[j] = '\0';
+        
+        // Get RV data for this underlying
+        realized_vol_t *rv = get_underlying_rv(client->rv_manager, underlying);
+        if (rv && rv->rv_20d > 0) {
+            iv_rv_analysis_t iv_rv = analyze_iv_vs_rv(bs->implied_vol, rv, data->time_to_expiry);
+            
+            alert.iv_rv_spread = iv_rv.iv_rv_spread;
+            strncpy(alert.rv_signal, iv_rv.signal, sizeof(alert.rv_signal) - 1);
+            alert.rv_signal[sizeof(alert.rv_signal) - 1] = '\0';
+            
+            // Flag as anomaly if spread is extreme (>15% difference)
+            if (fabs(iv_rv.iv_rv_spread) > 0.15) {
+                alert.iv_rv_anomaly = 1;
+                snprintf(temp_msg, sizeof(temp_msg), "IV-RV: %+.1f%% (%s) ", 
+                        iv_rv.iv_rv_spread * 100, iv_rv.signal);
+                strcat(alert.alert_message, temp_msg);
+            }
+        }
+    }
+    
+    // Generate specific trade recommendations based on anomalies
+    if (alert.vanna_anomaly || alert.volga_anomaly || alert.charm_anomaly || alert.iv_rv_anomaly) {
+        generate_trade_recommendation(data, &alert);
+    }
+    
+    return alert;
+}
+
+// Display dislocation alerts for all options
+void display_dislocation_alerts(alpaca_client_t *client) {
+    int total_alerts = 0;
+    char combined_alerts[2048] = "";
+    
+    // Analyze each option for dislocations
+    for (int i = 0; i < client->data_count; i++) {
+        option_data_t *data = &client->option_data[i];
+        dislocation_alert_t alert = analyze_volatility_dislocation(data, client);
+        
+        if (alert.vanna_anomaly || alert.volga_anomaly || alert.charm_anomaly || alert.iv_rv_anomaly) {
+            total_alerts++;
+            
+            // Format symbol for display
+            char readable_symbol[32];
+            parse_option_symbol(data->symbol, readable_symbol, sizeof(readable_symbol));
+            if (strlen(readable_symbol) > 15) {
+                readable_symbol[15] = '\0'; // Truncate for display
+            }
+            
+            char alert_line[768];
+            snprintf(alert_line, sizeof(alert_line), "  %s: %s%s\n", 
+                    readable_symbol, alert.alert_message, alert.trade_recommendation);
+            strcat(combined_alerts, alert_line);
+        }
+    }
+    
+    // Display alerts section
+    if (total_alerts > 0) {
+        printf("\n" COLOR_RED "VOLATILITY DISLOCATION ALERTS (%d)" COLOR_RESET "\n", total_alerts);
+        printf("%s", combined_alerts);
+        
+        // Add trading suggestions
+//        printf(COLOR_GREEN "TRADING SIGNALS:" COLOR_RESET "\n");
+  //      printf("  • HIGH VANNA → Vol moves opposite to spot direction\n");
+    //    printf("  • HIGH VOLGA → Expensive vol insurance, consider selling\n");
+      //  printf("  • WRONG CHARM → Delta hedging will be costly\n");
+        //printf("  • SIGN INVERSIONS → Potential mispricing opportunities\n");
+    } else {
+        printf("\n" COLOR_GREEN "No volatility dislocations detected" COLOR_RESET "\n");
+    }
 }

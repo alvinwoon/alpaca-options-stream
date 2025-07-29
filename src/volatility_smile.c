@@ -236,7 +236,7 @@ int is_smile_anomaly(volatility_smile_t *smile) {
 }
 
 void log_smile_opportunity(volatility_smile_t *smile, const char *pattern_type) {
-    printf("\n🚨 VOLATILITY OPPORTUNITY DETECTED 🚨\n");
+    printf("\nVOLATILITY OPPORTUNITY DETECTED\n");
     printf("Pattern: %s\n", pattern_type);
     printf("Underlying: %s | Expiry: %s\n", smile->underlying, smile->expiry_date);
     printf("ATM Vol: %.1f%% | Put Skew: %.1f%% | Call Skew: %.1f%%\n",

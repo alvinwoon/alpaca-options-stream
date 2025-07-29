@@ -11,4 +11,7 @@ int fetch_option_symbols(alpaca_client_t *client, const char *underlying_symbol,
                         const char *exp_date_gte, const char *exp_date_lte, 
                         double strike_price_gte, double strike_price_lte);
 
+// Historical data fetching for RV calculation
+int fetch_historical_bars(alpaca_client_t *client, const char *symbol, const char *start_date, int limit_days);
+
 #endif // API_CLIENT_H

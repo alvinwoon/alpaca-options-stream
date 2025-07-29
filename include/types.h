@@ -59,6 +59,7 @@ typedef struct {
 // Forward declarations to avoid circular dependencies
 struct stock_client_s;
 struct smile_analysis_s;
+struct rv_manager_s;
 
 typedef struct {
     char *api_key;
@@ -91,6 +92,9 @@ typedef struct {
     
     // Volatility smile analysis
     struct smile_analysis_s *smile_analysis;
+    
+    // Realized volatility analysis
+    struct rv_manager_s *rv_manager;
 } alpaca_client_t;
 
 #endif // TYPES_H

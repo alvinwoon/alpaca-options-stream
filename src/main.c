@@ -13,6 +13,7 @@
 #include "../include/fred_api.h"
 #include "../include/volatility_smile.h"
 #include "../include/config.h"
+#include "../include/realized_vol.h"
 
 static alpaca_client_t client = {0};
 static int mock_mode = 0;
@@ -72,8 +73,14 @@ static int parse_arguments(int argc, char **argv, app_config_t *config) {
         }
         
         mock_mode = 1;
-        client.api_key = "mock_key";
-        client.api_secret = "mock_secret";
+        // Use real API keys even in mock mode for historical data fetching
+        if (config->valid) {
+            client.api_key = config->alpaca_api_key;
+            client.api_secret = config->alpaca_api_secret;
+        } else {
+            client.api_key = "mock_key";
+            client.api_secret = "mock_secret";
+        }
         
         // Parse symbols for mock mode
         client.symbol_count = argc - 2;
@@ -90,7 +97,7 @@ static int parse_arguments(int argc, char **argv, app_config_t *config) {
     
     // For non-mock modes, we need API credentials
     if (!config->valid) {
-        printf("❌ Error: API configuration required for non-mock mode\n");
+        printf("Error: API configuration required for non-mock mode\n");
         print_config_help();
         return 0;
     }
@@ -202,6 +209,48 @@ int main(int argc, char **argv) {
     static smile_analysis_t smile_analysis;
     initialize_smile_analysis(&smile_analysis);
     client.smile_analysis = &smile_analysis;
+    
+    // Initialize realized volatility manager and fetch historical data
+    client.rv_manager = init_rv_manager();
+    
+    // Extract unique underlying symbols and fetch their historical data
+    char underlying_symbols[MAX_SYMBOLS][16];
+    int underlying_count = 0;
+    
+    for (int i = 0; i < client.symbol_count; i++) {
+        char underlying[16];
+        // Extract underlying from option symbol (e.g., "QQQ" from "QQQ251220C00564000")
+        int j;
+        for (j = 0; j < (int)sizeof(underlying) - 1 && client.symbols[i][j] && 
+             ((client.symbols[i][j] >= 'A' && client.symbols[i][j] <= 'Z') || 
+              (client.symbols[i][j] >= 'a' && client.symbols[i][j] <= 'z')); j++) {
+            underlying[j] = client.symbols[i][j];
+        }
+        underlying[j] = '\0';
+        
+        // Check if we already have this underlying
+        int already_exists = 0;
+        for (int k = 0; k < underlying_count; k++) {
+            if (strcmp(underlying_symbols[k], underlying) == 0) {
+                already_exists = 1;
+                break;
+            }
+        }
+        
+        if (!already_exists && underlying_count < MAX_SYMBOLS) {
+            strcpy(underlying_symbols[underlying_count], underlying);
+            underlying_count++;
+        }
+    }
+    
+    // Fetch historical data for each underlying (60 days from recent date) - use config if available
+    if (config.valid && underlying_count > 0) {
+        printf("Initializing realized volatility analysis...\n");
+        for (int i = 0; i < underlying_count; i++) {
+            fetch_historical_bars(&client, underlying_symbols[i], "2025-06-01", 60);
+        }
+        printf("\n");
+    }
     
     // Set up signal handler
     signal(SIGINT, sigint_handler);

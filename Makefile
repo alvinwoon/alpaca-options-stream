@@ -19,7 +19,7 @@ OBJDIR = obj
 MAIN_SOURCES = $(SRCDIR)/main.c $(SRCDIR)/websocket.c $(SRCDIR)/stock_websocket.c \
                $(SRCDIR)/api_client.c $(SRCDIR)/symbol_parser.c $(SRCDIR)/display.c \
                $(SRCDIR)/message_parser.c $(SRCDIR)/mock_data.c $(SRCDIR)/fred_api.c \
-               $(SRCDIR)/black_scholes.c $(SRCDIR)/volatility_smile.c $(SRCDIR)/config.c
+               $(SRCDIR)/black_scholes.c $(SRCDIR)/volatility_smile.c $(SRCDIR)/config.c $(SRCDIR)/realized_vol.c
 
 SYMBOL_SOURCES = get_option_symbols.c
 
@@ -121,3 +121,4 @@ $(OBJDIR)/mock_data.o: $(INCDIR)/mock_data.h $(INCDIR)/types.h $(INCDIR)/message
 $(OBJDIR)/fred_api.o: $(INCDIR)/fred_api.h $(INCDIR)/types.h $(INCDIR)/api_client.h
 $(OBJDIR)/black_scholes.o: $(INCDIR)/black_scholes.h
 $(OBJDIR)/volatility_smile.o: $(INCDIR)/volatility_smile.h $(INCDIR)/types.h $(INCDIR)/symbol_parser.h
+$(OBJDIR)/realized_vol.o: $(INCDIR)/realized_vol.h
