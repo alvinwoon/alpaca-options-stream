@@ -12,8 +12,8 @@
 
 // ANSI color codes
 #define COLOR_RESET   "\033[0m"
-#define COLOR_GREEN   "\033[42m\033[30m"  // Green background, black text
-#define COLOR_RED     "\033[41m\033[37m"  // Red background, white text
+#define COLOR_GREEN   "\033[32m"          // Green text
+#define COLOR_RED     "\033[31m"          // Red text
 #define COLOR_NORMAL  "\033[0m"
 
 // Helper function to format value with color and proper padding
@@ -144,19 +144,26 @@ static void* display_thread_func(void *arg) {
 }
 
 void display_option_data(alpaca_client_t *client) {
-    // Use more efficient screen clearing - save cursor, clear, restore position
-    printf("\033[s");           // Save cursor position
-    printf("\033[H");           // Move cursor to home position
-    printf("\033[2J");          // Clear entire screen 
+    static int first_draw = 1;
+    
+    if (first_draw) {
+        // Only clear screen on first draw
+        printf("\033[2J\033[H");  // Clear screen and move to home
+        first_draw = 0;
+    } else {
+        // Just move cursor to home without clearing
+        printf("\033[H");
+    }
+    
     printf("\033[?25l");        // Hide cursor during update
     fflush(stdout);             // Force flush before printing new content
     
-    printf("=== Alpaca Options Live Data with Greeks ===\n");
-    printf("Risk-free rate: %.2f%% | Symbols: %d | Press Ctrl+C to exit\n\n", 
+    printf("\033[K=== Alpaca Options Live Data with Greeks ===\n");  // \033[K clears to end of line
+    printf("\033[KRisk-free rate: %.2f%% | Symbols: %d | Press Ctrl+C to exit\n\n", 
            client->risk_free_rate * 100.0, client->data_count);
     
-    // Header line 1: Basic option info and pricing
-    printf("%-28s %-8s %-10s %-10s %-8s", 
+    // Header line 1: Basic option info and pricing  
+    printf("\033[K%-28s %-8s %-10s %-10s %-8s", 
            "OPTION CONTRACT", "UND.$", "LAST", "BID/ASK", "SPREAD");
     printf(" %-8s %-7s %-7s %-7s %-7s %-7s %-7s %-7s %-7s %-7s %-7s\n",
            "IV", "DELTA", "GAMMA", "THETA", "VEGA", "VANNA", "CHARM", "VOLGA", "SPEED", "ZOMMA", "COLOR");
@@ -190,14 +197,14 @@ void display_option_data(alpaca_client_t *client) {
         char trade_str[16];
         strcpy(trade_str, "N/A");  // Ensure clean initialization
         if (data->has_trade) {
-            snprintf(trade_str, sizeof(trade_str), "%.4f", data->last_price);
+            snprintf(trade_str, sizeof(trade_str), "%.2f", data->last_price);
         }
         
         // Format bid/ask (no color - clean)
         char bid_ask_str[16];
         strcpy(bid_ask_str, "N/A");  // Ensure clean initialization
         if (data->has_quote && data->bid_price > 0 && data->ask_price > 0) {
-            snprintf(bid_ask_str, sizeof(bid_ask_str), "%.3f/%.3f", data->bid_price, data->ask_price);
+            snprintf(bid_ask_str, sizeof(bid_ask_str), "%.2f/%.2f", data->bid_price, data->ask_price);
         }
         
         // Format spread with color
@@ -209,7 +216,7 @@ void display_option_data(alpaca_client_t *client) {
                 format_value_with_color(spread_str, sizeof(spread_str), spread, 
                                       data->prev_spread, "%.3f", 0.001, 8);
             } else {
-                snprintf(spread_str, sizeof(spread_str), "%-8.3f", spread);
+                snprintf(spread_str, sizeof(spread_str), "%-8.2f", spread);
             }
         }
         
@@ -254,7 +261,7 @@ void display_option_data(alpaca_client_t *client) {
             if (data->prev_delta != 0) {
                 format_value_with_color(delta_str, sizeof(delta_str), current_delta, prev_delta, "%.3f", 0.001, 7);
             } else {
-                snprintf(delta_str, sizeof(delta_str), "%-7.3f", current_delta);
+                snprintf(delta_str, sizeof(delta_str), "%-7.2f", current_delta);
             }
             
             // Gamma with color
@@ -263,7 +270,7 @@ void display_option_data(alpaca_client_t *client) {
             if (data->prev_gamma != 0) {
                 format_value_with_color(gamma_str, sizeof(gamma_str), current_gamma, prev_gamma, "%.3f", 0.001, 7);
             } else {
-                snprintf(gamma_str, sizeof(gamma_str), "%-7.3f", current_gamma);
+                snprintf(gamma_str, sizeof(gamma_str), "%-7.2f", current_gamma);
             }
             
             // Theta with color
@@ -272,7 +279,7 @@ void display_option_data(alpaca_client_t *client) {
             if (data->prev_theta != 0) {
                 format_value_with_color(theta_str, sizeof(theta_str), current_theta, prev_theta, "%.3f", 0.001, 7);
             } else {
-                snprintf(theta_str, sizeof(theta_str), "%-7.3f", current_theta);
+                snprintf(theta_str, sizeof(theta_str), "%-7.2f", current_theta);
             }
             
             // Vega with color
@@ -281,7 +288,7 @@ void display_option_data(alpaca_client_t *client) {
             if (data->prev_vega != 0) {
                 format_value_with_color(vega_str, sizeof(vega_str), current_vega, prev_vega, "%.3f", 0.001, 7);
             } else {
-                snprintf(vega_str, sizeof(vega_str), "%-7.3f", current_vega);
+                snprintf(vega_str, sizeof(vega_str), "%-7.2f", current_vega);
             }
             
             // 2nd Order Greeks with color
@@ -290,7 +297,7 @@ void display_option_data(alpaca_client_t *client) {
             if (data->prev_vanna != 0) {
                 format_value_with_color(vanna_str, sizeof(vanna_str), current_vanna, prev_vanna, "%.3f", 0.001, 7);
             } else {
-                snprintf(vanna_str, sizeof(vanna_str), "%-7.3f", current_vanna);
+                snprintf(vanna_str, sizeof(vanna_str), "%-7.2f", current_vanna);
             }
             
             double current_charm = data->bs_analytics.charm * 365.0;
@@ -306,7 +313,7 @@ void display_option_data(alpaca_client_t *client) {
             if (data->prev_volga != 0) {
                 format_value_with_color(volga_str, sizeof(volga_str), current_volga, prev_volga, "%.3f", 0.001, 7);
             } else {
-                snprintf(volga_str, sizeof(volga_str), "%-7.3f", current_volga);
+                snprintf(volga_str, sizeof(volga_str), "%-7.2f", current_volga);
             }
             
             // 3rd Order Greeks with color
@@ -315,7 +322,7 @@ void display_option_data(alpaca_client_t *client) {
             if (data->prev_speed != 0) {
                 format_value_with_color(speed_str, sizeof(speed_str), current_speed, prev_speed, "%.4f", 0.0001, 7);
             } else {
-                snprintf(speed_str, sizeof(speed_str), "%-7.4f", current_speed);
+                snprintf(speed_str, sizeof(speed_str), "%-7.2f", current_speed);
             }
             
             double current_zomma = data->bs_analytics.zomma / 100.0;
@@ -323,7 +330,7 @@ void display_option_data(alpaca_client_t *client) {
             if (data->prev_zomma != 0) {
                 format_value_with_color(zomma_str, sizeof(zomma_str), current_zomma, prev_zomma, "%.3f", 0.001, 7);
             } else {
-                snprintf(zomma_str, sizeof(zomma_str), "%-7.3f", current_zomma);
+                snprintf(zomma_str, sizeof(zomma_str), "%-7.2f", current_zomma);
             }
             
             double current_color = data->bs_analytics.color * 365.0;
@@ -335,8 +342,8 @@ void display_option_data(alpaca_client_t *client) {
             }
         }
         
-        // Print the row with explicit color reset after each field
-        printf("%-28s" COLOR_RESET " %-8s" COLOR_RESET " %-10s" COLOR_RESET " %-10s" COLOR_RESET " %-8s" COLOR_RESET, 
+        // Print the row with line clearing and explicit color reset after each field
+        printf("\033[K%-28s" COLOR_RESET " %-8s" COLOR_RESET " %-10s" COLOR_RESET " %-10s" COLOR_RESET " %-8s" COLOR_RESET, 
                readable_symbol, und_str, trade_str, bid_ask_str, spread_str);
         printf(" %-8s" COLOR_RESET " %-7s" COLOR_RESET " %-7s" COLOR_RESET " %-7s" COLOR_RESET " %-7s" COLOR_RESET " %-7s" COLOR_RESET " %-7s" COLOR_RESET " %-7s" COLOR_RESET " %-7s" COLOR_RESET " %-7s" COLOR_RESET " %-7s" COLOR_RESET "\n",
                iv_str, delta_str, gamma_str, theta_str, vega_str, vanna_str, charm_str, volga_str, speed_str, zomma_str, color_str);
@@ -345,9 +352,12 @@ void display_option_data(alpaca_client_t *client) {
         update_previous_values(data);
     }
     
+    // Clear any remaining lines from previous display
+    printf("\033[J");  // Clear from cursor to end of screen
+    
     printf("\nGreeks: Delta, Gamma(/$1), Theta(/day), Vega(/1%%vol) | IV=Implied Volatility\n");
     printf("2nd Order: Vanna(/100), Charm(×365), Volga(/100) | 3rd Order: Speed(/$1000), Zomma(/100), Color(×365)\n");
-    printf("Colors: " COLOR_GREEN " GREEN " COLOR_RESET " = Up, " COLOR_RED " RED " COLOR_RESET " = Down\n");
+    printf("Colors: " COLOR_GREEN "GREEN" COLOR_RESET " = Up, " COLOR_RED "RED" COLOR_RESET " = Down\n");
     
     // Display realized volatility summary if available
     if (client->rv_manager) {
@@ -383,11 +393,9 @@ void display_option_data(alpaca_client_t *client) {
                     
                     if (strcmp(underlying, rv->symbol) == 0) {
                         // Parse option symbol for display
-                        char readable_symbol[32];
+                        char readable_symbol[64];
                         parse_option_symbol(data->symbol, readable_symbol, sizeof(readable_symbol));
-                        if (strlen(readable_symbol) > 20) {
-                            readable_symbol[20] = '\0';
-                        }
+                        // No truncation - show full readable symbol
                         
                         iv_rv_analysis_t iv_rv = analyze_iv_vs_rv(data->bs_analytics.implied_vol, rv, data->time_to_expiry);
                         double iv_percent = data->bs_analytics.implied_vol * 100;
@@ -401,7 +409,7 @@ void display_option_data(alpaca_client_t *client) {
                             signal_color = COLOR_GREEN;
                         }
                         
-                        printf("     %-20s: IV=%.1f%% vs RV₂₀=%.1f%% → %s%+.1f%% (%s)%s\n",
+                        printf("     %-28s: IV=%.1f%% vs RV₂₀=%.1f%% → %s%+.1f%% (%s)%s\n",
                                readable_symbol, iv_percent, rv_percent, signal_color, spread_percent, iv_rv.signal, COLOR_RESET);
                     }
                 }
@@ -725,11 +733,9 @@ void display_dislocation_alerts(alpaca_client_t *client) {
             total_alerts++;
             
             // Format symbol for display
-            char readable_symbol[32];
+            char readable_symbol[64];
             parse_option_symbol(data->symbol, readable_symbol, sizeof(readable_symbol));
-            if (strlen(readable_symbol) > 15) {
-                readable_symbol[15] = '\0'; // Truncate for display
-            }
+            // No truncation - show full readable symbol
             
             char alert_line[768];
             snprintf(alert_line, sizeof(alert_line), "  %s: %s%s\n", 
